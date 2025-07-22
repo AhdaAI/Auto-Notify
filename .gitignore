@@ -1,4 +1,10 @@
+__pycache__
+
 .env
 .env.*
 
 .gcloud/
+
+# IDEs
+.vscode/
+.idea/
