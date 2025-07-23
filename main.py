@@ -22,13 +22,50 @@ EPIC_GAMES_URL = "https://store-site-backend-static-ipv4.ak.epicgames.com/freeGa
 EPIC_GAMES_CONTENT = "https://store-content-ipv4.ak.epicgames.com/api/en-US/content/products/"
 
 
-def deploy(terminal_input: list):
+def deploy(provider: str):
     """Deployment script.
 
     Parameters:
         provider: Provider for deployment. (Default: GCP)
     """
-    print("Not implemented yet.")
+    system = platform.system()
+
+    print("="*100)
+    print(f"{"Platform":<15}: {platform.platform()}")
+    print(f"{"Architecture":<15}: {platform.architecture()}")
+    print(f"{"Processor":<15}: {platform.processor()}")
+    print(f"{"Python Version":<15}: {platform.python_version()}")
+    print("="*100)
+    print()
+
+    if system == "":
+        print(f"System cannot be determined. {system}")
+        print('If you know what you are doing, run the script inside "deployment" folder.')
+        exit(1)
+
+    if (provider == "GCP") or (provider == "gcp"):
+        if system.lower() == "windows":
+            print(f"{system} Detected.")
+            print("Deploying to GCP Cloud Run Jobs...")
+
+            commands = [
+                "powershell.exe",
+                "./deployment/cloud_run.ps1"
+            ]
+            result = subprocess.run(
+                commands,
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            print(result.stdout)
+            if result.stderr:
+                print("Errors:\n", result.stderr)
+                print()
+                print("="*100)
+                print(
+                    "[!] Please check if 'gcloud' is installed or run the 'cloud_run.ps1' manually. [!]")
+                print("="*100)
 
 
 def main():
@@ -180,6 +217,11 @@ if __name__ == "__main__":
 
     # --- Deployment Process ---
     if "--deploy" in args:
-        deploy(args)
+        if args.index("--deploy") + 1 > len(args) - 1:
+            DEPLOY_METHOD = "GCP"
+        else:
+            DEPLOY_METHOD = args[args.index("--deploy") + 1]
+        deploy(DEPLOY_METHOD)
+        exit(0)
 
     main()
