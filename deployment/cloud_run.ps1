@@ -79,8 +79,8 @@ Write-Host "`n--- Env Variable Check Complete ---`n"
 $cacheFile = ".cache.yaml"
 $cacheContent = "GCP:" | Out-String
 $cachedStoredRaw = Get-Content $cacheFile -Raw 2>$null
-if ($cachedTagRaw) {
-  $cachedStoredContent = ConvertFrom-Yaml -Yaml $cachedStoredRaw
+if ($cachedStoredRaw) {
+  $cachedStoredContent = ConvertFrom-Yaml $cachedStoredRaw
 }
 
 try {
@@ -113,21 +113,24 @@ $activeAccount = gcloud config list account --format="value(core.account)"
 Write-Host "Currently active gcloud account: $activeAccount"
 Write-Host "`n[ $activeProject ] ------- GCP Services -------"
 $requiredServices = @("run.googleapis.com", "cloudbuild.googleapis.com", "cloudscheduler.googleapis.com")
+$cacheContent += "  services:`n"
+$services = $cachedStoredContent.GCP.services 2>$null
 foreach ($service in $requiredServices) {
-  if (-not $cachedStoredContent.GCP[$service] -or (-not $cachedStoredRaw)) {
-    $enabledServices = gcloud services list --enabled --format "value(NAME)"
-    if ($service -in $enabledServices) {
-      Write-Host "[ $activeProject ] -- $service Enabled"
-      $cacheContent += "  $($service): Enabled"
-    }
-    else {
-      Write-Host "[ $activeProject ] -- Enabling gcloud service $param"
-      gcloud services enable $param
-    }
+  if (-not $cachedStoredRaw) {
+    Write-Host "[ $activeProject ] -- Enabling gcloud service $service"
+    gcloud services enable $service
+    $cacheContent += "    - $service`n"
+    continue
   }
-  else {
-    Write-Host "[ $activeProject ] -- $service Enabled"
+
+  if ((-not $services) -or (-not $service -in $services)) {
+    Write-Host "[ $activeProject ] -- Enabling gcloud service $service"
+    gcloud services enable $service
+    $cacheContent += "    - $service`n"
+    continue
   }
+
+  Write-Host "[ $activeProject ] -- $service Enabled"
 }
 Write-Host "[ $activeProject ] ----- Services Enabled -----`n"
 
@@ -136,15 +139,16 @@ $deployedImageUrl = (gcloud run jobs describe $envVars['CLOUD_RUN_NAME'] `
     --region $envVars['GCP_REGION'] `
     --format="value(image)").trim()
 $deployedImageTag = ($deployedImageUrl -split ':')[-1]
-if ($cachedStoredContent) {
-  $cachedTag = $cachedTagContent.GCP.ImageTag
-}
-else {
+Write-Host "[ $activeProject ] Currently deployed image tag: $deployedImageTag"
+
+if ((-not $cachedStoredRaw) -or ([string]::IsNullOrEmpty($cachedStoredContent.GCP.ImageTag))) {
   $cachedTag = $deployedImageTag
 }
+else {
+  $cachedTag = $cachedStoredContent.GCP.ImageTag
+  Write-Host "[ $activeProject ] Cached deployed image tag: $cachedTag"
+}
 
-Write-Host "[ $activeProject ] Currently deployed image tag: $deployedImageTag"
-Write-Host "[ $activeProject ] Cached deployed image tag: $cachedTag"
 Write-Host "[ $activeProject ] Local Git commit SHA: $gitCommitSha"
 
 if ($deployedImageTag -eq $cachedTag -or ([string]::IsNullOrEmpty($deployedImageTag))) {
@@ -158,7 +162,8 @@ if ($deployedImageTag -eq $cachedTag -or ([string]::IsNullOrEmpty($deployedImage
     "--project $($envVars['GCP_PROJECT_ID'])",
     "--service-account $($serviceAccountEmail)",
     "--tasks 1",
-    "--max-retries 0"
+    "--max-retries 0",
+    "--args=""--use-gcp"""
   )
   $requiredEnvKeys = @("GCP_PROJECT_ID", "GCP_DATABASE_NAME", "GCP_DATABASE_COLLECTION")
   foreach ($key in $requiredEnvKeys) {
@@ -184,8 +189,8 @@ if ($deployedImageTag -eq $cachedTag -or ([string]::IsNullOrEmpty($deployedImage
   gcloud run jobs execute $runName --region $envVars['GCP_REGION']
 }
 else {
-  Write-Host "[ $activeProject ] Deployed tag mismatch with cached tag."
-  Write-Host "[ $activeProject ] If this is correct, clear or delete '.cache.yaml' file."
+  Write-Warning "[ $activeProject ] Deployed tag mismatch with cached tag."
+  Write-Warning "[ $activeProject ] If this is correct, clear or delete '.cache.yaml' file."
 }
 
 # --- Scheduler ---
@@ -220,7 +225,7 @@ $schedulerCommands = @(
   "--oauth-token-scope ""https://www.googleapis.com/auth/cloud-platform""", # Required OAuth scope
   "--http-method POST",            # Cloud Run Jobs are triggered via HTTP POST
   "--time-zone ""Asia/Jakarta""",  # IMPORTANT: Set this to your desired timezone (e.g., "America/New_York", "Europe/London")
-  "--project ""$projId""",       # Explicitly specify the project
+  "--project $($envVars['GCP_PROJECT_ID'])",       # Explicitly specify the project
   "--location ""$cloudSchedulerLocation"""
 )
 
