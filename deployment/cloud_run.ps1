@@ -174,6 +174,73 @@ if ($deployedImageTag -ne $gitCommitSha) {
   }
 
   # --- Cloud Run Jobs ---
+  # Define input and output file names
+  $envFile = ".env"
+  $ymlFile = ".env.yml"
+
+  # Check if the .env file exists
+  if (-not (Test-Path $envFile)) {
+    Write-Error "Error: .env file not found at $($envFile)"
+    exit 1
+  }
+
+  # Start building the YAML content
+  $yamlContent = "env:" | Out-String
+
+  # Read the .env file line by line
+  Get-Content $envFile | ForEach-Object {
+    $line = $_.Trim()
+
+    # Skip empty lines and comments
+    if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith("#")) {
+      return
+    }
+
+    # Split the line into key and value at the first '='
+    $parts = $line.Split('=', 2)
+
+    if ($parts.Length -eq 2) {
+      $key = $parts[0].Trim()
+      $value = $parts[1].Trim()
+
+      # Remove quotes if present
+      if ($value.StartsWith('"') -and $value.EndsWith('"')) {
+        $value = $value.Substring(1, $value.Length - 2)
+      }
+      if ($value.StartsWith("'") -and $value.EndsWith("'")) {
+        $value = $value.Substring(1, $value.Length - 2)
+      }
+
+      # Handle special characters in YAML values (e.g., colons, leading dashes)
+      # For simplicity, we'll quote values that might cause YAML parsing issues.
+      # A more robust solution might use a YAML library, but for basic K=V, this is often sufficient.
+      if ($value -match "^[0-9.-]+$" -or $value -match "[:#-]") {
+        $value = "`"$($value)`""
+      }
+      # Add a newline escape for multi-line values in .env, though less common for direct Cloud Run env vars.
+      # For true multi-line values, YAML block scalars (|, >) would be preferred,
+      # but .env typically doesn't support them directly in a way that maps neatly.
+      $value = $value.Replace("`n", "`n  ") # Indent subsequent lines if there are embedded newlines
+
+
+      # Append to YAML content with proper indentation
+      $yamlContent += "  $($key): $($value)`n"
+    }
+    else {
+      Write-Warning "Skipping malformed line in .env: '$line'"
+    }
+  }
+
+  # Write the YAML content to the .env.yml file
+  try {
+    $yamlContent | Set-Content $ymlFile -Encoding UTF8
+    Write-Host "Successfully converted '$envFile' to '$ymlFile'."
+  }
+  catch {
+    Write-Error "Error writing to $ymlFile`: $_"
+    exit 1
+  }
+
   $runName = $envVars['CLOUD_RUN_NAME']
   Write-Host "[ $activeProject ] Deploying to cloud run jobs..."
   $deployCommands = @(
@@ -182,7 +249,7 @@ if ($deployedImageTag -ne $gitCommitSha) {
     "--region $region",
     "--project $projId",
     "--service-account $serviceAccountEmail",
-    "--env-vars-file .env",
+    "--env-vars-file $ymlFile",
     "--tasks 1",
     "--max-retries 0"
   )
