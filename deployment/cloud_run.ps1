@@ -211,7 +211,7 @@ if ($schedule) {
 }
 $cloudRunName = $envVars['CLOUD_RUN_NAME']
 $cronSchedule = "10 23 * * *"
-$cronJobUri = "https://$region-run.googleapis.com/apis/run.googleapis.com/v1/projects/$projtId/locations/$region/jobs/$cloudRunName`:run"
+$cronJobUri = "https://$($envVars["GCP_REGION"])-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$($envVars["GCP_PROJECT_ID"])/jobs/$($cloudRunName):run"
 
 Write-Host "[ $activeProject ] Configuring Cloud Scheduler [ $cronJobName ]"
 Write-Host "[ $activeProject ] Target URI: $cronJobUri"
