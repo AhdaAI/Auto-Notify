@@ -93,24 +93,20 @@ foreach ($param in $requiredServices) {
   gcloud services enable $param
 }
 
+# --- Artifact Registry ---
 Write-Host "Checking repo existence..."
 $repoName = $envVars['GCP_ARTIFACT_REPO']
 $imageName = $envVars['GCP_IMAGE_NAME']
 $region = $envVars['GCP_REGION']
 $projId = $envVars['GCP_PROJECT_ID']
-try {
-  # Attempt to describe the repository. If it doesn't exist, this command will fail.
-  gcloud artifacts repositories describe $repoName `
-    --location=$region `
-    --project=$projId `
-    --format="value(name)"
 
-  if ($LASTEXITCODE -ne 0) {
-    throw "Gcloud command failed to describe repository (exit code: $LASTEXITCODE)."
-  }
-  Write-Host "'$repoName' repository exists."
-}
-catch {
+# Attempt to describe the repository. If it doesn't exist, this command will fail.
+gcloud artifacts repositories describe $repoName `
+  --location=$region `
+  --project=$projId `
+  --format="value(name)"
+
+if ($LASTEXITCODE -ne 0) {
   # If the describe command fails, it means the repository does not exist
   Write-Warning "Artifact Registry repository '$repoName' not found."
   Write-Host "Creating Artifact Registry repository '$repoName'..."
@@ -128,22 +124,22 @@ catch {
     exit 1 # Exit script on failure
   }
 }
+else {
+  Write-Host "'$repoName' repository exists."
+}
+
 
 Write-Host "Building docker image and pushing to artifact registry..."
-try {
-  gcloud builds submit ./deployment `
-    --tag $region-docker.pkg.dev/$projId/$repoName/$imageName:latest `
-    --project $projId
+gcloud builds submit ./deployment `
+  --tag $region-docker.pkg.dev/$projId/$repoName/$imageName:latest `
+  --project $projId
 
-  if ($LASTEXITCODE -ne 0) {
-    throw "gcloud encounter an error (exit code: $LASTEXITCODE)."
-  }
-}
-catch {
-  Write-Error "WARNING: An error has occurred."
+if ($LASTEXITCODE -ne 0) {
+  throw "gcloud encounter an error (exit code: $LASTEXITCODE)."
   exit 1
 }
 
+# --- Cloud Run Jobs ---
 $runName = $envVars['CLOUD_RUN_NAME']
 Write-Host "Deploying to cloud run jobs..."
 $deployCommands = @(
@@ -157,3 +153,5 @@ $deployCommands = @(
 $fullCommand = $deployCommands -join " "
 write-host "Executing: [ $fullCommand ]"
 Invoke-Expression $fullCommand
+
+# --- Scheduler ---
