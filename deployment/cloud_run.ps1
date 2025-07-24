@@ -1,6 +1,7 @@
 # ==============================================================================
 # PowerShell : Checking for required program and variable
 # ==============================================================================
+Import-Module -Name powershell-yaml
 
 Write-Host "--- Checking for gcloud installation ---"
 Write-Host "`nAttempting to run 'gcloud --version'..."
@@ -49,7 +50,7 @@ else {
   Write-Warning "The .env file was not found at path: $envFilePath"
 }
 
-$requiredParams = @('GCP_PROJECT_ID', 'GOOGLE_APPLICATION_CREDENTIALS', 'GCP_DATABASE_COLLECTION', 'GCP_DATABASE_NAME', 'GCP_ARTIFACT_REPO', 'GCP_IMAGE_NAME', 'CLOUD_RUN_NAME')
+$requiredParams = @('GCP_PROJECT_ID', 'GOOGLE_APPLICATION_CREDENTIALS', 'GCP_DATABASE_COLLECTION', 'GCP_DATABASE_NAME', 'CLOUD_RUN_NAME')
 foreach ($param in $requiredParams) {
   if (-not $envVars.ContainsKey($param) -or [string]::IsNullOrWhiteSpace($envVars[$param])) {
     $inputValue = Read-Host "Enter value for $param"
@@ -74,6 +75,13 @@ Write-Host "`n--- Env Variable Check Complete ---`n"
 # Artifact Registry : GCP equivalent to docker hub
 # Cloud run : Container base deployment (I only use Cloud run jobs)
 # ==============================================================================
+
+$cacheFile = ".cache.yaml"
+$cacheContent = "GCP:" | Out-String
+$cachedStoredRaw = Get-Content $cacheFile -Raw 2>$null
+if ($cachedTagRaw) {
+  $cachedStoredContent = ConvertFrom-Yaml -Yaml $cachedStoredRaw
+}
 
 try {
   $jsonContent = Get-Content -Path $envVars['GOOGLE_APPLICATION_CREDENTIALS'] -Raw
@@ -104,15 +112,21 @@ else {
 $activeAccount = gcloud config list account --format="value(core.account)"
 Write-Host "Currently active gcloud account: $activeAccount"
 Write-Host "`n[ $activeProject ] ------- GCP Services -------"
-$enabledServices = gcloud services list --enabled --format "value(NAME)"
 $requiredServices = @("run.googleapis.com", "cloudbuild.googleapis.com", "cloudscheduler.googleapis.com")
 foreach ($service in $requiredServices) {
-  if ($service -in $enabledServices) {
-    Write-Host "[ $activeProject ] -- $service Enabled"
+  if (-not $cachedStoredContent.GCP[$service] -or (-not $cachedStoredRaw)) {
+    $enabledServices = gcloud services list --enabled --format "value(NAME)"
+    if ($service -in $enabledServices) {
+      Write-Host "[ $activeProject ] -- $service Enabled"
+      $cacheContent += "  $($service): Enabled"
+    }
+    else {
+      Write-Host "[ $activeProject ] -- Enabling gcloud service $param"
+      gcloud services enable $param
+    }
   }
   else {
-    Write-Host "[ $activeProject ] -- Enabling gcloud service $param"
-    gcloud services enable $param
+    Write-Host "[ $activeProject ] -- $service Enabled"
   }
 }
 Write-Host "[ $activeProject ] ----- Services Enabled -----`n"
@@ -122,137 +136,34 @@ $deployedImageUrl = (gcloud run jobs describe $envVars['CLOUD_RUN_NAME'] `
     --region $envVars['GCP_REGION'] `
     --format="value(image)").trim()
 $deployedImageTag = ($deployedImageUrl -split ':')[-1]
+if ($cachedStoredContent) {
+  $cachedTag = $cachedTagContent.GCP.ImageTag
+}
+else {
+  $cachedTag = $deployedImageTag
+}
 
 Write-Host "[ $activeProject ] Currently deployed image tag: $deployedImageTag"
+Write-Host "[ $activeProject ] Cached deployed image tag: $cachedTag"
 Write-Host "[ $activeProject ] Local Git commit SHA: $gitCommitSha"
 
-if ($deployedImageTag -ne $gitCommitSha) {
-  # --- Artifact Registry ---
-  Write-Host "[ $activeProject ] Checking repo existence..."
-  $repoName = $envVars['GCP_ARTIFACT_REPO']
-  $imageName = $envVars['GCP_IMAGE_NAME']
-  $region = $envVars['GCP_REGION']
-  $projId = $envVars['GCP_PROJECT_ID']
-
-  # Attempt to describe the repository. If it doesn't exist, this command will fail.
-  gcloud artifacts repositories describe $repoName `
-    --location=$region `
-    --project=$projId `
-    --format="value(name)"
-
-  if ($LASTEXITCODE -ne 0) {
-    # If the describe command fails, it means the repository does not exist
-    Write-Warning "[ $activeProject ] Artifact Registry repository '$repoName' not found."
-    Write-Host "[ $activeProject ] Creating Artifact Registry repository '$repoName'..."
-    try {
-      gcloud artifacts repositories create $repoName `
-        --repository-format=docker `
-        --location=$region `
-        --project=$projId `
-        --description="Docker repository for Cloud Run Job images"
-
-      Write-Host "[ $activeProject ] Artifact Registry repository '$repoName' created successfully."
-    }
-    catch {
-      Write-Error "[ $activeProject ] Failed to create Artifact Registry repository '$repoName': $($_.Exception.Message)"
-      exit 1 # Exit script on failure
-    }
-  }
-  else {
-    Write-Host "[ $activeProject ] '$repoName' repository exists."
-  }
-
-
-  Write-Host "[ $activeProject ] Building docker image and pushing to artifact registry..."
-  gcloud builds submit . `
-    --tag $region-docker.pkg.dev/$projId/$repoName/"$imageName":$gitCommitSha `
-    --project $projId
-
-  if ($LASTEXITCODE -ne 0) {
-    throw "[ $activeProject ] gcloud encounter an error (exit code: $LASTEXITCODE)."
-    exit 1
-  }
-
+if ($deployedImageTag -eq $cachedTag -or ([string]::IsNullOrEmpty($deployedImageTag))) {
   # --- Cloud Run Jobs ---
-  # Define input and output file names
-  $envFile = ".env"
-  $ymlFile = ".env.yml"
-
-  # Check if the .env file exists
-  if (-not (Test-Path $envFile)) {
-    Write-Error "Error: .env file not found at $($envFile)"
-    exit 1
-  }
-
-  # Start building the YAML content
-  $yamlContent = "env:" | Out-String
-
-  # Read the .env file line by line
-  Get-Content $envFile | ForEach-Object {
-    $line = $_.Trim()
-
-    # Skip empty lines and comments
-    if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith("#")) {
-      return
-    }
-
-    # Split the line into key and value at the first '='
-    $parts = $line.Split('=', 2)
-
-    if ($parts.Length -eq 2) {
-      $key = $parts[0].Trim()
-      $value = $parts[1].Trim()
-
-      # Remove quotes if present
-      if ($value.StartsWith('"') -and $value.EndsWith('"')) {
-        $value = $value.Substring(1, $value.Length - 2)
-      }
-      if ($value.StartsWith("'") -and $value.EndsWith("'")) {
-        $value = $value.Substring(1, $value.Length - 2)
-      }
-
-      # Handle special characters in YAML values (e.g., colons, leading dashes)
-      # For simplicity, we'll quote values that might cause YAML parsing issues.
-      # A more robust solution might use a YAML library, but for basic K=V, this is often sufficient.
-      if ($value -match "^[0-9.-]+$" -or $value -match "[:#-]") {
-        $value = "`"$($value)`""
-      }
-      # Add a newline escape for multi-line values in .env, though less common for direct Cloud Run env vars.
-      # For true multi-line values, YAML block scalars (|, >) would be preferred,
-      # but .env typically doesn't support them directly in a way that maps neatly.
-      $value = $value.Replace("`n", "`n  ") # Indent subsequent lines if there are embedded newlines
-
-
-      # Append to YAML content with proper indentation
-      $yamlContent += "  $($key): $($value)`n"
-    }
-    else {
-      Write-Warning "Skipping malformed line in .env: '$line'"
-    }
-  }
-
-  # Write the YAML content to the .env.yml file
-  try {
-    $yamlContent | Set-Content $ymlFile -Encoding UTF8
-    Write-Host "Successfully converted '$envFile' to '$ymlFile'."
-  }
-  catch {
-    Write-Error "Error writing to $ymlFile`: $_"
-    exit 1
-  }
-
   $runName = $envVars['CLOUD_RUN_NAME']
   Write-Host "[ $activeProject ] Deploying to cloud run jobs..."
   $deployCommands = @(
     "gcloud run jobs deploy $runName",
-    "--image $region-docker.pkg.dev/$projId/$repoName/$imageName`:$gitCommitSha",
-    "--region $region",
-    "--project $projId",
-    "--service-account $serviceAccountEmail",
-    "--env-vars-file $ymlFile",
+    "--source .",
+    "--region $($envVars['GCP_REGION'])",
+    "--project $($envVars['GCP_PROJECT_ID'])",
+    "--service-account $($serviceAccountEmail)",
     "--tasks 1",
     "--max-retries 0"
   )
+  $requiredEnvKeys = @("GCP_PROJECT_ID", "GCP_DATABASE_NAME", "GCP_DATABASE_COLLECTION")
+  foreach ($key in $requiredEnvKeys) {
+    $deployCommands += "--set-env-vars $($key)=$($envVars[$key])"
+  }
   $fullCommand = $deployCommands -join " "
   write-host "[ $activeProject ] Executing: [ $fullCommand ]"
   Invoke-Expression $fullCommand
@@ -261,20 +172,31 @@ if ($deployedImageTag -ne $gitCommitSha) {
     throw "[ $activeProject ] ERROR: Something went wrong when invoking $fullCommand"
     exit 1
   }
+
+  $recentDeployedImageUrl = (gcloud run jobs describe $envVars['CLOUD_RUN_NAME'] `
+      --region $envVars['GCP_REGION'] `
+      --format="value(image)").trim()
+  $recentDeployedImageTag = ($recentDeployedImageUrl -split ':')[-1]
+  $cacheContent += "  ImageTag: $recentDeployedImageTag"
+  $cacheContent | Set-Content $cacheFile -Encoding UTF8
+
+  Write-Host "Executing cloud run jobs"
+  gcloud run jobs execute $runName --region $envVars['GCP_REGION']
 }
 else {
-  Write-Host "[ $activeProject ] Build not necessary!"
+  Write-Host "[ $activeProject ] Deployed tag mismatch with cached tag."
+  Write-Host "[ $activeProject ] If this is correct, clear or delete '.cache.yaml' file."
 }
 
 # --- Scheduler ---
 $cronJobName = "auto-notify"
 if ([string]::IsNullOrEmpty($envVars['GCP_SCHEDULE_LOCATION'])) {
   $cloudSchedulerLocation = "asia-southeast2"
-  Write-Host "[ $activeProject ] CLOUD_SCHEDULER_LOCATION not set. Defaulting to '$cloudSchedulerLocation'."
+  Write-Host "[ $activeProject ] GCP_SCHEDULE_LOCATION not set. Defaulting to '$cloudSchedulerLocation'."
 }
 else {
   $cloudSchedulerLocation = $envVars['GCP_SCHEDULE_LOCATION']
-  Write-Host "[ $activeProject ] Using CLOUD_SCHEDULER_LOCATION from environment: '$cloudSchedulerLocation'."
+  Write-Host "[ $activeProject ] Using GCP_SCHEDULE_LOCATION from environment: '$cloudSchedulerLocation'."
 }
 $schedule = gcloud scheduler jobs list --location $cloudSchedulerLocation --format "value(ID)" | Select-String "auto-notify"
 if ($schedule) {
