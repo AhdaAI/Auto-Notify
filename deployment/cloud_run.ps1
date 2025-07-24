@@ -103,92 +103,120 @@ else {
 
 $activeAccount = gcloud config list account --format="value(core.account)"
 Write-Host "Currently active gcloud account: $activeAccount"
+Write-Host "`n[ $activeProject ] ------- GCP Services -------"
+$enabledServices = gcloud services list --enabled --format "value(NAME)"
 $requiredServices = @("run.googleapis.com", "cloudbuild.googleapis.com", "cloudscheduler.googleapis.com")
-foreach ($param in $requiredServices) {
-  Write-Host "[ $activeProject ] -- Enabling gcloud service $param"
-  gcloud services enable $param
-}
-
-# --- Artifact Registry ---
-Write-Host "[ $activeProject ] Checking repo existence..."
-$repoName = $envVars['GCP_ARTIFACT_REPO']
-$imageName = $envVars['GCP_IMAGE_NAME']
-$region = $envVars['GCP_REGION']
-$projId = $envVars['GCP_PROJECT_ID']
-
-# Attempt to describe the repository. If it doesn't exist, this command will fail.
-gcloud artifacts repositories describe $repoName `
-  --location=$region `
-  --project=$projId `
-  --format="value(name)"
-
-if ($LASTEXITCODE -ne 0) {
-  # If the describe command fails, it means the repository does not exist
-  Write-Warning "[ $activeProject ] Artifact Registry repository '$repoName' not found."
-  Write-Host "[ $activeProject ] Creating Artifact Registry repository '$repoName'..."
-  try {
-    gcloud artifacts repositories create $repoName `
-      --repository-format=docker `
-      --location=$region `
-      --project=$projId `
-      --description="Docker repository for Cloud Run Job images"
-
-    Write-Host "[ $activeProject ] Artifact Registry repository '$repoName' created successfully."
+foreach ($service in $requiredServices) {
+  if ($service -in $enabledServices) {
+    Write-Host "[ $activeProject ] -- $service Enabled"
   }
-  catch {
-    Write-Error "[ $activeProject ] Failed to create Artifact Registry repository '$repoName': $($_.Exception.Message)"
-    exit 1 # Exit script on failure
+  else {
+    Write-Host "[ $activeProject ] -- Enabling gcloud service $param"
+    gcloud services enable $param
+  }
+}
+Write-Host "[ $activeProject ] ----- Services Enabled -----`n"
+
+$gitCommitSha = (git rev-parse --short HEAD).Trim()
+$deployedImageUrl = (gcloud run jobs describe $envVars['CLOUD_RUN_NAME'] `
+    --region $envVars['GCP_REGION'] `
+    --format="value(image)").trim()
+$deployedImageTag = ($deployedImageUrl -split ':')[-1]
+
+Write-Host "[ $activeProject ] Currently deployed image tag: $deployedImageTag"
+Write-Host "[ $activeProject ] Local Git commit SHA: $gitCommitSha"
+
+if ($deployedImageTag -ne $gitCommitSha) {
+  # --- Artifact Registry ---
+  Write-Host "[ $activeProject ] Checking repo existence..."
+  $repoName = $envVars['GCP_ARTIFACT_REPO']
+  $imageName = $envVars['GCP_IMAGE_NAME']
+  $region = $envVars['GCP_REGION']
+  $projId = $envVars['GCP_PROJECT_ID']
+
+  # Attempt to describe the repository. If it doesn't exist, this command will fail.
+  gcloud artifacts repositories describe $repoName `
+    --location=$region `
+    --project=$projId `
+    --format="value(name)"
+
+  if ($LASTEXITCODE -ne 0) {
+    # If the describe command fails, it means the repository does not exist
+    Write-Warning "[ $activeProject ] Artifact Registry repository '$repoName' not found."
+    Write-Host "[ $activeProject ] Creating Artifact Registry repository '$repoName'..."
+    try {
+      gcloud artifacts repositories create $repoName `
+        --repository-format=docker `
+        --location=$region `
+        --project=$projId `
+        --description="Docker repository for Cloud Run Job images"
+
+      Write-Host "[ $activeProject ] Artifact Registry repository '$repoName' created successfully."
+    }
+    catch {
+      Write-Error "[ $activeProject ] Failed to create Artifact Registry repository '$repoName': $($_.Exception.Message)"
+      exit 1 # Exit script on failure
+    }
+  }
+  else {
+    Write-Host "[ $activeProject ] '$repoName' repository exists."
+  }
+
+
+  Write-Host "[ $activeProject ] Building docker image and pushing to artifact registry..."
+  gcloud builds submit . `
+    --tag $region-docker.pkg.dev/$projId/$repoName/"$imageName":$gitCommitSha `
+    --project $projId
+
+  if ($LASTEXITCODE -ne 0) {
+    throw "[ $activeProject ] gcloud encounter an error (exit code: $LASTEXITCODE)."
+    exit 1
+  }
+
+  # --- Cloud Run Jobs ---
+  $runName = $envVars['CLOUD_RUN_NAME']
+  Write-Host "[ $activeProject ] Deploying to cloud run jobs..."
+  $deployCommands = @(
+    "gcloud run jobs deploy $runName",
+    "--image $region-docker.pkg.dev/$projId/$repoName/$imageName`:$gitCommitSha",
+    "--region $region",
+    "--project $projId",
+    "--service-account $serviceAccountEmail",
+    "--tasks 1",
+    "--max-retries 0"
+  )
+  $fullCommand = $deployCommands -join " "
+  write-host "[ $activeProject ] Executing: [ $fullCommand ]"
+  Invoke-Expression $fullCommand
+
+  if ($LASTEXITCODE -ne 0) {
+    throw "[ $activeProject ] ERROR: Something went wrong when invoking $fullCommand"
+    exit 1
   }
 }
 else {
-  Write-Host "[ $activeProject ] '$repoName' repository exists."
-}
-
-
-Write-Host "[ $activeProject ] Building docker image and pushing to artifact registry..."
-gcloud builds submit . `
-  --tag $region-docker.pkg.dev/$projId/$repoName/"$imageName":latest `
-  --project $projId
-
-if ($LASTEXITCODE -ne 0) {
-  throw "[ $activeProject ] gcloud encounter an error (exit code: $LASTEXITCODE)."
-  exit 1
-}
-
-# --- Cloud Run Jobs ---
-$runName = $envVars['CLOUD_RUN_NAME']
-Write-Host "[ $activeProject ] Deploying to cloud run jobs..."
-$deployCommands = @(
-  "gcloud run jobs deploy $runName",
-  "--image $region-docker.pkg.dev/$projId/$repoName/$imageName",
-  "--region $region",
-  "--project $projId",
-  "--service-account $serviceAccountEmail",
-  "--tasks 1",
-  "--max-retries 0"
-)
-$fullCommand = $deployCommands -join " "
-write-host "[ $activeProject ] Executing: [ $fullCommand ]"
-Invoke-Expression $fullCommand
-
-if ($LASTEXITCODE -ne 0) {
-  throw "[ $activeProject ] ERROR: Something went wrong when invoking $fullCommand"
-  exit 1
+  Write-Host "[ $activeProject ] Build not necessary!"
 }
 
 # --- Scheduler ---
-$cloudRunName = $envVars['CLOUD_RUN_NAME']
 $cronJobName = "auto-notify"
-$cronSchedule = "10 23 * * *"
-$cronJobUri = "https://$region-run.googleapis.com/apis/run.googleapis.com/v1/projects/$projtId/locations/$region/jobs/$cloudRunName`:run"
 if ([string]::IsNullOrEmpty($envVars['GCP_SCHEDULE_LOCATION'])) {
   $cloudSchedulerLocation = "asia-southeast2"
-  Write-Host "CLOUD_SCHEDULER_LOCATION not set. Defaulting to '$cloudSchedulerLocation'."
+  Write-Host "[ $activeProject ] CLOUD_SCHEDULER_LOCATION not set. Defaulting to '$cloudSchedulerLocation'."
 }
 else {
   $cloudSchedulerLocation = $envVars['GCP_SCHEDULE_LOCATION']
-  Write-Host "Using CLOUD_SCHEDULER_LOCATION from environment: '$cloudSchedulerLocation'."
+  Write-Host "[ $activeProject ] Using CLOUD_SCHEDULER_LOCATION from environment: '$cloudSchedulerLocation'."
 }
+$schedule = gcloud scheduler jobs list --location $cloudSchedulerLocation --format "value(ID)" | Select-String "auto-notify"
+if ($schedule) {
+  Write-Host "[ $activeProject ] Existing schedule name found! [ $cronJobName ]"
+  Write-Host "[ $activeProject ] If this is not intended please delete the schedule and run the script again!"
+  exit 0
+}
+$cloudRunName = $envVars['CLOUD_RUN_NAME']
+$cronSchedule = "10 23 * * *"
+$cronJobUri = "https://$region-run.googleapis.com/apis/run.googleapis.com/v1/projects/$projtId/locations/$region/jobs/$cloudRunName`:run"
 
 Write-Host "[ $activeProject ] Configuring Cloud Scheduler [ $cronJobName ]"
 Write-Host "[ $activeProject ] Target URI: $cronJobUri"
@@ -208,13 +236,13 @@ $schedulerCommands = @(
 
 # Join the array elements into a single command string
 $fullSchedulerCommand = $schedulerCommands -join ' '
-Write-Host "Executing Cloud Scheduler command:`n$fullSchedulerCommand"
+Write-Host "[ $activeProject ] Executing Cloud Scheduler command:`n$fullSchedulerCommand"
 
 Invoke-Expression -Command $fullSchedulerCommand
 if ($LASTEXITCODE -ne 0) {
-  Write-Error "Failed to configure Cloud Scheduler Job '$cronJobName': $($_.Exception.Message)"
-  Write-Error "Please ensure the service account '$serviceAccountEmail' has 'roles/run.invoker' permission on Cloud Run Job '$cloudRunJobName'."
+  Write-Error "[ $activeProject ] Failed to configure Cloud Scheduler Job '$cronJobName': $($_.Exception.Message)"
+  Write-Error "[ $activeProject ] Please ensure the service account '$serviceAccountEmail' has 'roles/run.invoker' permission on Cloud Run Job '$cloudRunJobName'."
   exit 1
 }
-Write-Host "Cloud Scheduler Job '$cronJobName' configured successfully!"
-Write-Host "It will run according to schedule '$cronSchedule' in timezone 'Asia/Jakarta'."
+Write-Host "[ $activeProject ] Cloud Scheduler Job '$cronJobName' configured successfully!"
+Write-Host "[ $activeProject ] It will run according to schedule '$cronSchedule' in timezone 'Asia/Jakarta'."
