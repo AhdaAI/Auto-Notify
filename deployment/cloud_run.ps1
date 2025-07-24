@@ -182,6 +182,7 @@ if ($deployedImageTag -ne $gitCommitSha) {
     "--region $region",
     "--project $projId",
     "--service-account $serviceAccountEmail",
+    "--env-vars-file .env",
     "--tasks 1",
     "--max-retries 0"
   )
