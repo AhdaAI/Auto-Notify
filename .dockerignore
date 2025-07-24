@@ -1,5 +1,0 @@
-.env.*
-poetry*
-__pycache__
-.vscode/
-.idea/
