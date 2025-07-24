@@ -20,6 +20,7 @@ from embed_builder import Embed, AuthorObject, ImageObject, FieldObject
 
 EPIC_GAMES_URL = "https://store-site-backend-static-ipv4.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=ID"
 EPIC_GAMES_CONTENT = "https://store-content-ipv4.ak.epicgames.com/api/en-US/content/products/"
+USE_GCP = False
 
 
 def deploy(provider: str):
@@ -75,7 +76,7 @@ def main():
     """
     gcp = True
     # --- Fetch database ---
-    if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+    if (not os.getenv("GOOGLE_APPLICATION_CREDENTIALS")) and (not USE_GCP):
         gcp = False
         print("No GCP Credential Detected.")
         print("Continuing without GCP.")
@@ -223,5 +224,8 @@ if __name__ == "__main__":
             DEPLOY_METHOD = args[args.index("--deploy") + 1]
         deploy(DEPLOY_METHOD)
         exit(0)
+
+    if "--use-gcp" in args:
+        USE_GCP = True
 
     main()
