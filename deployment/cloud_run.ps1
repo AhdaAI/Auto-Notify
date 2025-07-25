@@ -129,8 +129,9 @@ foreach ($service in $requiredServices) {
     $cacheContent += "    - $service`n"
     continue
   }
-
-  Write-Host "[ $activeProject ] -- $service Enabled"
+  
+  Write-Host "[ $activeProject ] -- $service Enabled [CACHED]"
+  $cacheContent += "    - $service`n"
 }
 Write-Host "[ $activeProject ] ----- Services Enabled -----`n"
 
@@ -195,15 +196,7 @@ else {
 
 # --- Scheduler ---
 $cronJobName = "auto-notify"
-if ([string]::IsNullOrEmpty($envVars['GCP_SCHEDULE_LOCATION'])) {
-  $cloudSchedulerLocation = "asia-southeast2"
-  Write-Host "[ $activeProject ] GCP_SCHEDULE_LOCATION not set. Defaulting to '$cloudSchedulerLocation'."
-}
-else {
-  $cloudSchedulerLocation = $envVars['GCP_SCHEDULE_LOCATION']
-  Write-Host "[ $activeProject ] Using GCP_SCHEDULE_LOCATION from environment: '$cloudSchedulerLocation'."
-}
-$schedule = gcloud scheduler jobs list --location $cloudSchedulerLocation --format "value(ID)" | Select-String "auto-notify"
+$schedule = gcloud scheduler jobs list --location $($envVars["GCP_REGION"]) --format "value(ID)" | Select-String "auto-notify"
 if ($schedule) {
   Write-Host "[ $activeProject ] Existing schedule name found! [ $cronJobName ]"
   Write-Host "[ $activeProject ] If this is not intended please delete the schedule and run the script again!"
@@ -226,7 +219,7 @@ $schedulerCommands = @(
   "--http-method POST",            # Cloud Run Jobs are triggered via HTTP POST
   "--time-zone ""Asia/Jakarta""",  # IMPORTANT: Set this to your desired timezone (e.g., "America/New_York", "Europe/London")
   "--project $($envVars['GCP_PROJECT_ID'])",       # Explicitly specify the project
-  "--location ""$cloudSchedulerLocation"""
+  "--location ""$($envVars["GCP_REGION"])"""
 )
 
 # Join the array elements into a single command string
@@ -240,4 +233,4 @@ if ($LASTEXITCODE -ne 0) {
   exit 1
 }
 Write-Host "[ $activeProject ] Cloud Scheduler Job '$cronJobName' configured successfully!"
-Write-Host "[ $activeProject ] It will run according to schedule '$cronSchedule' in timezone 'Asia/Jakarta'."
+Write-Host "[ $($activeProject) ] It will run according to schedule '$($cronSchedule)' in timezone 'Asia/Jakarta'."
