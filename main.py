@@ -51,10 +51,11 @@ def deploy(provider: str):
 
             commands = [
                 "powershell.exe",
-                "./deployment/cloud_run.ps1"
+                "-ExecutionPolicy Bypass",
+                "-File ./deployment/cloud_run.ps1"
             ]
             result = subprocess.run(
-                commands,
+                " ".join(commands),
                 capture_output=True,
                 text=True,
                 check=False
@@ -124,10 +125,14 @@ def main():
         if not promotions or (game['status'] != "ACTIVE") or (discount_price != "0"):
             continue
 
-        if not promotions['promotionalOffers'][0]['promotionalOffers']:
+        offers = promotions.get('promotionalOffers')
+        if not offers:
             continue
 
-        end_date = promotions['promotionalOffers'][0]['promotionalOffers'][0]['endDate']
+        if not offers[0]['promotionalOffers']:
+            continue
+
+        end_date = offers[0]['promotionalOffers'][0]['endDate']
 
         product_slug = game['productSlug']
         if not product_slug:
@@ -219,6 +224,7 @@ if __name__ == "__main__":
     # --- Deployment Process ---
     if "--deploy" in args:
         if args.index("--deploy") + 1 > len(args) - 1:
+            print("Deployment process not specified, defaulting to GCP.")
             DEPLOY_METHOD = "GCP"
         else:
             DEPLOY_METHOD = args[args.index("--deploy") + 1]
