@@ -84,7 +84,15 @@ if ($cachedStoredRaw) {
 }
 
 try {
-  $jsonContent = Get-Content -Path $envVars['GOOGLE_APPLICATION_CREDENTIALS'] -Raw
+  $credentialsPath = $envVars['GOOGLE_APPLICATION_CREDENTIALS']
+  if (-not (Test-Path $credentialsPath)) {
+    $credentialsPath = $env:GOOGLE_APPLICATION_CREDENTIALS
+    if (-not $credentialsPath) {
+      throw "GOOGLE_APPLICATION_CREDENTIALS not found in directory or environment variables"
+    }
+  }
+
+  $jsonContent = Get-Content -Path $credentialsPath -Raw
   $serviceAccountObject = ConvertFrom-Json -InputObject $jsonContent
   $serviceAccountEmail = $serviceAccountObject.client_email
 
@@ -97,7 +105,8 @@ try {
 }
 catch {
   Write-Error "Error reading or parsing the JSON file: $($_.Exception.Message)"
-  Write-Error "Please ensure the path is correct and the file is a valid service account JSON key."
+  Write-Error "Please ensure GOOGLE_APPLICATION_CREDENTIALS is properly set in environment or .env.deploy file"
+  exit 1
 }
 
 $activeProject = gcloud config get-value project
