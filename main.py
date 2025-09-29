@@ -18,6 +18,8 @@ from google.cloud import firestore
 from dotenv import load_dotenv
 from embed_builder import Embed, AuthorObject, ImageObject, FieldObject
 
+from Utility import Utility
+
 EPIC_GAMES_URL = "https://store-site-backend-static-ipv4.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=ID"
 EPIC_GAMES_CONTENT = "https://store-content-ipv4.ak.epicgames.com/api/en-US/content/products/"
 USE_GCP = False
@@ -115,37 +117,30 @@ def main():
         exit(0)
 
     # --- Scrape Epic Games Store ---
-    response = requests.get(EPIC_GAMES_URL, timeout=10000)
-    data = response.json()['data']['Catalog']['searchStore']['elements']
+    data = Utility.scrapper()
     end_date = ""
     embeds = []
     for game in data:
-        discount_price = game['price']['totalPrice']['fmtPrice']['discountPrice']
-        promotions = game['promotions']
-        if not promotions or (game['status'] != "ACTIVE") or (discount_price != "0"):
+        if not game.promotions:
             continue
 
-        offers = promotions.get('promotionalOffers')
-        if not offers:
-            continue
+        offers = game.promotions.promotionalOffers
+        end_date = offers[0].promotionalOffers[0].endDate
 
-        if not offers[0]['promotionalOffers']:
-            continue
-
-        end_date = offers[0]['promotionalOffers'][0]['endDate']
-
-        product_slug = game['productSlug']
+        product_slug = game.productSlug
         if not product_slug:
-            product_slug = game['catalogNs']['mappings'][0]['pageSlug']
+            if not game.catalogNs or not game.catalogNs.mappings:
+                continue
+            product_slug = game.catalogNs.mappings[0].pageSlug
 
-        key_image = game['keyImages']
+        key_image = game.keyImages
         image_tall = ""
         for image in key_image:
-            if image['type'] == "OfferImageTall":
-                image_tall = image['url']
+            if image.type == "OfferImageTall":
+                image_tall = image.url
 
-        short_description = game['description']
-        if game['title'] == short_description:
+        short_description = game.description
+        if game.title == short_description:
             game_content = requests.get(
                 f"{EPIC_GAMES_CONTENT}{product_slug}", timeout=10000)
             if game_content.status_code == 200:
@@ -156,10 +151,10 @@ def main():
             color="1752220",
             author=AuthorObject("Epic Games", "https://store.epicgames.com"),
             image=ImageObject(image_tall),
-            title=game['title'],
+            title=game.title,
             url=f"https://store.epicgames.com/en-US/p/{product_slug}",
-            timestamp=end_date,
-            description=f"*Original Price : IDR {int(game['price']['totalPrice']['originalPrice'])/100:,.2f}*",
+            timestamp=end_date,  # type: ignore
+            description=f"*Original Price : IDR {int(game.price.totalPrice.originalPrice)/100:,.2f}*",
             fields=[
                 FieldObject("Description", f"```{short_description}```")
             ]
@@ -191,7 +186,7 @@ def main():
                 document = db.document(key)
                 update_doc = document.get().to_dict()
                 update_doc['webhook']['updateAt'] = isoparse(  # type: ignore
-                    end_date)
+                    end_date)  # type: ignore
                 document.update(update_doc)  # type: ignore
 
 
