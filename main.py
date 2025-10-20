@@ -6,15 +6,13 @@ Args:
     --deploy: Specified the deployment method. (GCP, Docker)
 """
 import os
-import sys
-import platform
-import subprocess
-import json
-from datetime import datetime, timezone
-from pathlib import Path
-from dateutil.parser import isoparse
 import requests
-from google.cloud import firestore
+import json
+import time
+from datetime import datetime, timezone
+from dateutil.parser import isoparse
+from rich import print
+from pathlib import Path
 from dotenv import load_dotenv
 from embed_builder import Embed, AuthorObject, ImageObject, FieldObject
 
@@ -24,52 +22,18 @@ EPIC_GAMES_URL = "https://store-site-backend-static-ipv4.ak.epicgames.com/freeGa
 EPIC_GAMES_CONTENT = "https://store-content-ipv4.ak.epicgames.com/api/en-US/content/products/"
 USE_GCP = False
 
-
-def deploy(provider: str):
-    """Deployment script.
-
-    Parameters:
-        provider: Provider for deployment. (Default: GCP)
-    """
-    system = platform.system()
-
-    print("="*100)
-    print(f"{"Platform":<15}: {platform.platform()}")
-    print(f"{"Architecture":<15}: {platform.architecture()}")
-    print(f"{"Processor":<15}: {platform.processor()}")
-    print(f"{"Python Version":<15}: {platform.python_version()}")
-    print("="*100)
-    print()
-
-    if system == "":
-        print(f"System cannot be determined. {system}")
-        print('If you know what you are doing, run the script inside "deployment" folder.')
-        exit(1)
-
-    if (provider == "GCP") or (provider == "gcp"):
-        if system.lower() == "windows":
-            print(f"{system} Detected.")
-            print("Deploying to GCP Cloud Run Jobs...")
-
-            commands = [
-                "powershell.exe",
-                "-ExecutionPolicy Bypass",
-                "-File ./deployment/cloud_run.ps1"
-            ]
-            result = subprocess.run(
-                " ".join(commands),
-                capture_output=True,
-                text=True,
-                check=False
-            )
-            print(result.stdout)
-            if result.stderr:
-                print("Errors:\n", result.stderr)
-                print()
-                print("="*100)
-                print(
-                    "[!] Please check if 'gcloud' is installed or run the 'cloud_run.ps1' manually. [!]")
-                print("="*100)
+if Path(".env").exists():
+    load_dotenv()
+else:
+    from SecretManager import SecretManager
+    manager = SecretManager()
+    data = json.loads(str(Path("config.json")))
+    for env in data.get("env"):
+        secret = manager.get_secret(env)
+        if secret[1]:
+            os.environ[env] = secret[1]
+        else:
+            raise ValueError("Secret is empty.")
 
 
 def main():
@@ -77,50 +41,17 @@ def main():
 
     Scrape the epic games store for free game and notified in discord.
     """
-    gcp = True
-    # --- Fetch database ---
-    if (not os.getenv("GOOGLE_APPLICATION_CREDENTIALS")) and (not USE_GCP):
-        gcp = False
-        print("No GCP Credential Detected.")
-        print("Continuing without GCP.")
-        print("Checking local database...")
-        filepath = Path(os.getenv("DATABASE_FILENAME") or "")
-        if not filepath.exists():
-            print(f"ERROR: Cannot find database. ({filepath})")
-            exit(1)
-        with open(filepath, "r", encoding='utf8') as file:
-            docs = json.load(file)
-    else:
-        db = firestore.Client(
-            os.getenv("GCP_PROJECT_ID"),
-            database=os.getenv("GCP_DATABASE_NAME")
-        ).collection(f"{os.getenv("GCP_DATABASE_COLLECTION")}")
-        docs = {}
-        for doc in db.stream():
-            data = doc.to_dict()
-            docs[doc.id] = data
+    docs = Utility.get_info()
 
-    update = []
-    # --- Checking for update ---
-    for doc in docs.values():
-        temp = {}
-        # Checking for epic and steam subs
-        # Currently only scraping epic
-        if not doc['subscription']['epic'] and not doc['subscription']['steam']:
-            continue
-        update_at = doc['webhook']['updateAt']
-        if not update_at or update_at <= datetime.now(timezone.utc):
-            temp[doc['id']] = doc['webhook']
-            update.append(temp)
-    if len(update) == 0:
-        print("Nothing to update.")
-        exit(0)
+    if not docs.get("update"):
+        print(f"[green]Nothing to update")
+        return
 
     # --- Scrape Epic Games Store ---
     data = Utility.scrapper()
     end_date = ""
     embeds = []
-    for game in data:
+    for game in data:  # Populate embed
         if not game.promotions:
             continue
 
@@ -167,66 +98,29 @@ def main():
         "embeds": embeds
     }
 
-    for webhook_data in update:
-        for key, value in webhook_data.items():
-            try:
-                result = requests.post(
-                    value['url'],
-                    json=webhook_user,
-                    timeout=10000
-                )
-                result.raise_for_status()
-            except requests.exceptions.HTTPError as err:
-                print(err)
-            else:
-                print(f"{f" code {result.status_code}. ":=^40}")
-                print("Payload delivered successfully.")
+    for key, value in docs.get("url", {}).items():
+        try:
+            result = requests.post(
+                value,
+                json=webhook_user,
+                timeout=10000
+            )
+            result.raise_for_status()
+        except requests.exceptions.HTTPError as err:
+            print(f"[red]ERROR OCCURRED:\n{err}")
+            continue
+        print(f"[cyan]Updated [bold]{key}.")
 
-            if gcp:
-                document = db.document(key)
-                update_doc = document.get().to_dict()
-                update_doc['webhook']['updateAt'] = isoparse(  # type: ignore
-                    end_date)  # type: ignore
-                document.update(update_doc)  # type: ignore
+    Utility.update_info("timestamp", {
+        "last_updated": datetime.now(timezone.utc),
+        "update_on": isoparse(end_date) if end_date else None
+    })
+    print(f"[green]Database updated")
 
 
 if __name__ == "__main__":
-    args = sys.argv
-    DOTENV_FILENAME = ".env"
-
-    # --- Dev Toggle ---
-    if "--dev" in args:
-        print('Expecting ".env.dev" or ".env.development"')
-        for filename in [".env.dev", ".env.development"]:
-            if Path(filename).exists():
-                DOTENV_FILENAME = filename
-        if DOTENV_FILENAME == ".env":
-            print("ERROR: File cannot be found.")
-            exit(1)
-
-    # --- Checking Env File ---
-    if "--env-file" in args:
-        file_path = Path(args[args.index("--env-file") + 1])
-        if file_path.exists():
-            print(f"Env file detected. ({file_path})")
-            DOTENV_FILENAME = file_path
-        else:
-            print(f"ERROR: File is not exist. ({file_path})")
-            exit(1)
-
-    load_dotenv(DOTENV_FILENAME)
-
-    # --- Deployment Process ---
-    if "--deploy" in args:
-        if args.index("--deploy") + 1 > len(args) - 1:
-            print("Deployment process not specified, defaulting to GCP.")
-            DEPLOY_METHOD = "GCP"
-        else:
-            DEPLOY_METHOD = args[args.index("--deploy") + 1]
-        deploy(DEPLOY_METHOD)
-        exit(0)
-
-    if "--use-gcp" in args:
-        USE_GCP = True
-
+    start = time.perf_counter()
     main()
+    end = time.perf_counter()
+    elapse = end - start
+    print(f"[cyan]Elapsed: {elapse:.2f} Second")

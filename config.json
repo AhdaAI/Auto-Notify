@@ -1,0 +1,7 @@
+{
+  "env": [
+    "GOOGLE_CLOUD_PROJECT",
+    "GOOGLE_DATABASE",
+    "GOOGLE_DATABASE_COLLECTION"
+  ]
+}
