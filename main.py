@@ -27,13 +27,15 @@ if Path(".env").exists():
 else:
     from SecretManager import SecretManager
     manager = SecretManager()
-    data = json.loads(str(Path("config.json")))
-    for env in data.get("env"):
-        secret = manager.get_secret(env)
-        if secret[1]:
-            os.environ[env] = secret[1]
-        else:
-            raise ValueError("Secret is empty.")
+
+    with open(Path("config.json"), "r") as f:
+        data = json.load(f)
+        for env in data.get("env"):
+            secret = manager.get_secret(env)
+            if secret[1]:
+                os.environ[env] = secret[1]
+            else:
+                raise ValueError("Secret is empty.")
 
 
 def main():
