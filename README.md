@@ -1,6 +1,6 @@
 # Automate Discord Notification
 
-[![GitHub License](https://img.shields.io/github/license/AhdaAI/dryass-backup)](https://github.com/AhdaAI/dryass-backup?tab=MIT-1-ov-file)
+[![GitHub License](https://img.shields.io/github/license/AhdaAI/dryass-backup)](https://github.com/AhdaAI/Auto-Notify/blob/main/LICENSE)
 
 Will automatically create an embedding for discord.
 
