@@ -2,14 +2,32 @@
 
 Will automatically create an embedding for discord.
 
+[.env](config-example.md)
+
 ## Currently automated
 
 - Epic Games Store Free Games scraper
 - Automate notify on discord (Webhook)
 
-## on Progress
+## Database
 
-- Automate cloud run job schedule creation
-- Docker image build
-- Automate deployment for other operating system (I don't know how long it will take)
-- Setting local development
+Currently you need to input the url manually.
+
+```json
+{
+  "collection_name": {
+    "timestamp" : {
+        "last_updated": timestamp,
+        "update_on": timestamp
+    },
+    "url": {
+        "server_name": "https://discord.com/api/webhook/******/*****"
+    }
+  }
+}
+```
+
+## Future Plan
+
+- Local database (.json/.csv file)
+- Simplified webhook url registration
