@@ -1,10 +1,3 @@
-"""
-MAIN EXECUTION SCRIPT
-Args:
-    --dev: For development
-    --env-file: Specified the .env file
-    --deploy: Specified the deployment method. (GCP, Docker)
-"""
 import os
 import requests
 import json
