@@ -27,7 +27,11 @@ deploy:
   needs:
     - validate
   image: google/cloud-sdk:latest
+  id_tokens:
+    GCP_ID_TOKEN:
+      aud: $AUDIENCE
   before_script:
+    - gcloud auth login --cred-file=<(echo "$GCP_ID_TOKEN") --quiet
     - gcloud config set project "$GOOGLE_CLOUD_PROJECT"
   <<: *on_main
   script:
