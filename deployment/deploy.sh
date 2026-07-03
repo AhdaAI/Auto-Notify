@@ -65,8 +65,8 @@ else
         --http-method POST \
         --time-zone "Asia/Jakarta" \
         --location "$GOOGLE_CLOUD_REGION" \
-        --oauth-service-account-email "$FUNCTION_SERVICE_ACCOUNT" \
-        --oauth-token-scope "https://www.googleapis.com/auth/cloud-platform" \
+        --oidc-service-account-email "$FUNCTION_SERVICE_ACCOUNT" \
+        --oidc-token-scope "https://www.googleapis.com/auth/cloud-platform" \
         --quiet
     echo "Scheduler created."
 fi
