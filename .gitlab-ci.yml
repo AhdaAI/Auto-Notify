@@ -25,6 +25,11 @@ deploy:
   image: google/cloud-sdk:latest
   before_script:
     - gcloud config set project "$GOOGLE_CLOUD_PROJECT"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - "**/*.py"
+        - requirements.txt
   script:
     - >
       gcloud functions deploy "$FUNCTION_NAME"
