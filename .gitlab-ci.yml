@@ -33,6 +33,7 @@ deploy:
   id_tokens:
     GCP_OIDC_TOKEN:
       aud: "https://iam.googleapis.com/projects/${GCP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/${GCP_POOL_ID}/providers/${GCP_PROVIDER_ID}"
+      iss: "https://auth.gcp.gitlab.com/oidc/ahdaai"
   before_script:
     - echo "${GCP_OIDC_TOKEN}" > /tmp/gcp_oidc_token
     - >
