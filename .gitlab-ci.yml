@@ -4,6 +4,9 @@ stages:
 
 variables:
   FUNCTION_NAME: auto-notify
+  GCP_PROJECT_NUMBER: "123456789012"
+  GCP_POOL_ID: "auto-notify"
+  GCP_PROVIDER_ID: "gitlab"
 
 .on_main: &on_main
   rules:
@@ -26,12 +29,19 @@ deploy:
   stage: deploy
   needs:
     - validate
-  image: google/cloud-sdk:latest
+  image: google/cloud-sdk:slim
   id_tokens:
-    GCP_ID_TOKEN:
-      aud: $AUDIENCE
+    GCP_OIDC_TOKEN:
+      aud: "https://iam.googleapis.com/projects/${GCP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/${GCP_POOL_ID}/providers/${GCP_PROVIDER_ID}"
   before_script:
-    - gcloud auth login --cred-file=<(echo "$GCP_ID_TOKEN") --quiet
+    - echo "${GCP_OIDC_TOKEN}" > /tmp/gcp_oidc_token
+    - >
+      gcloud iam workload-identity-pools create-cred-config
+      "projects/${GCP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/${GCP_POOL_ID}/providers/${GCP_PROVIDER_ID}"
+      --service-account="${GCP_SERVICE_ACCOUNT}"
+      --output-file=/tmp/gcp_cred_config.json
+      --credential-source-file=/tmp/gcp_oidc_token
+    - export CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=/tmp/gcp_cred_config.json
     - gcloud config set project "$GOOGLE_CLOUD_PROJECT"
   <<: *on_main
   script:
