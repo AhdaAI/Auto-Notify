@@ -43,6 +43,7 @@ deploy:
       --credential-source-file=/tmp/gcp_oidc_token
     - export CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=/tmp/gcp_cred_config.json
     - gcloud config set project "$GOOGLE_CLOUD_PROJECT"
+    - gcloud components update --quiet
   <<: *on_main
   script:
     - >
@@ -68,6 +69,8 @@ deploy:
           --schedule="$CRON_SCHEDULE" \
           --uri="$FUNCTION_URI" \
           --location "$GOOGLE_CLOUD_REGION" \
+          --oidc-service-account-email "$FUNCTION_SERVICE_ACCOUNT" \
+          --oidc-token-scope "https://www.googleapis.com/auth/cloud-platform" \
           --quiet
       else
         gcloud scheduler jobs create http "$FUNCTION_NAME" \
