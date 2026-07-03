@@ -5,6 +5,14 @@ stages:
 variables:
   FUNCTION_NAME: auto-notify
 
+.on_main: &on_main
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - "**/*.py"
+        - requirements.txt
+        - .gitlab-ci.yml
+
 validate:
   stage: validate
   image: python:3.13-slim
@@ -12,11 +20,7 @@ validate:
     - pip install -q -r requirements.txt
   script:
     - python -m py_compile main.py Utility.py Google.py embed_builder.py APIResponseDict.py SecretManager.py
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - "**/*.py"
-        - requirements.txt
+  <<: *on_main
 
 deploy:
   stage: deploy
@@ -25,11 +29,7 @@ deploy:
   image: google/cloud-sdk:latest
   before_script:
     - gcloud config set project "$GOOGLE_CLOUD_PROJECT"
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - "**/*.py"
-        - requirements.txt
+  <<: *on_main
   script:
     - >
       gcloud functions deploy "$FUNCTION_NAME"
