@@ -1,10 +1,8 @@
-import os
-
 from google.cloud import secretmanager
 
 
 class SecretManager:
-    def __init__(self, parent: str = f"projects/{os.getenv("GOOGLE_CLOUD_PROJECT")}"):
+    def __init__(self, parent: str):
         self._client = secretmanager.SecretManagerServiceClient()
         self._parent = parent
 

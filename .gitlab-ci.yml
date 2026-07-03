@@ -1,0 +1,63 @@
+stages:
+  - validate
+  - deploy
+
+variables:
+  FUNCTION_NAME: auto-notify
+
+validate:
+  stage: validate
+  image: python:3.13-slim
+  before_script:
+    - pip install -q -r requirements.txt
+  script:
+    - python -m py_compile main.py Utility.py Google.py embed_builder.py APIResponseDict.py SecretManager.py
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - "**/*.py"
+        - requirements.txt
+
+deploy:
+  stage: deploy
+  needs:
+    - validate
+  image: google/cloud-sdk:latest
+  before_script:
+    - gcloud config set project "$GOOGLE_CLOUD_PROJECT"
+  script:
+    - >
+      gcloud functions deploy "$FUNCTION_NAME"
+      --gen2
+      --runtime python313
+      --region "$GOOGLE_CLOUD_REGION"
+      --source .
+      --entry-point cloud_function_entrypoint
+      --trigger-http
+      --allow-unauthenticated
+      --service-account "$FUNCTION_SERVICE_ACCOUNT"
+      --set-env-vars "GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_DATABASE=$GOOGLE_DATABASE,AUTO_NOTIFY_COLLECTION=$AUTO_NOTIFY_COLLECTION"
+      --timeout 60
+      --quiet
+    - |
+      FUNCTION_URI=$(gcloud functions describe "$FUNCTION_NAME" \
+        --gen2 \
+        --region "$GOOGLE_CLOUD_REGION" \
+        --format="value(serviceConfig.uri)")
+      if gcloud scheduler jobs describe "$FUNCTION_NAME" --location "$GOOGLE_CLOUD_REGION" &>/dev/null; then
+        gcloud scheduler jobs update http "$FUNCTION_NAME" \
+          --schedule="$CRON_SCHEDULE" \
+          --uri="$FUNCTION_URI" \
+          --location "$GOOGLE_CLOUD_REGION" \
+          --quiet
+      else
+        gcloud scheduler jobs create http "$FUNCTION_NAME" \
+          --schedule="$CRON_SCHEDULE" \
+          --uri="$FUNCTION_URI" \
+          --http-method POST \
+          --time-zone "Asia/Jakarta" \
+          --location "$GOOGLE_CLOUD_REGION" \
+          --oauth-service-account-email "$FUNCTION_SERVICE_ACCOUNT" \
+          --oauth-token-scope "https://www.googleapis.com/auth/cloud-platform" \
+          --quiet
+      fi

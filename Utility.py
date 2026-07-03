@@ -1,7 +1,5 @@
 import requests
 
-from datetime import datetime, timezone
-
 from APIResponseDict import APIResponse, Element
 from Google import Google
 
@@ -31,33 +29,19 @@ class Utility:
         return offer_list
 
     @staticmethod
-    def get_info(local: bool = False) -> dict:
-        payload = {
-            "update": False,
-            "url": {}
+    def get_info(source: str) -> dict:
+        google = Google()
+        data = google.fetch_doc(source)
+
+        if not data:
+            raise ValueError(f"Document '{source}' not found in database.")
+
+        return {
+            "url": data.get("url", {}),
+            "notified": data.get("notified", []),
         }
 
-        google = Google()
-        data = google.fetch_db()
-
-        if data:
-            if isinstance(data.get("timestamp"), dict):
-                update_on = data["timestamp"].get("update_on")
-                if isinstance(update_on, str):
-                    update_on = datetime.fromisoformat(
-                        update_on.replace('Z', '+00:00'))
-                if update_on and update_on > datetime.now(timezone.utc):
-                    return payload
-
-            if isinstance(data.get("url"), dict):
-                payload["update"] = True
-                payload["url"] = data.get("url")
-
-            return payload
-        else:
-            raise ValueError("Data is empty, check the database.")
-
     @staticmethod
-    def update_info(document_id: str, data: dict):
+    def update_notified(source: str, game_ids: list[str]) -> bool:
         google = Google()
-        google.update_db(document_id, data)
+        return google.update_db(source, {"notified": game_ids})

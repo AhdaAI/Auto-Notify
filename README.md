@@ -1,35 +1,32 @@
-# Automate Discord Notification
+# Auto-Notify
 
-[![GitHub License](https://img.shields.io/github/license/AhdaAI/dryass-backup)](https://github.com/AhdaAI/Auto-Notify/blob/main/LICENSE)
+[![GitHub License](https://img.shields.io/github/license/AhdaAI/Auto-Notify)](https://github.com/AhdaAI/Auto-Notify/blob/main/LICENSE)
 
-Will automatically create an embedding for discord.
+Scrapes Epic Games Store free games daily and posts Discord embeds via webhook.
 
-[.env](config-example.md)
+[`.env` setup](.env.example)
 
-## Currently automated
+## How it works
 
-- Epic Games Store Free Games scraper
-- Automate notify on discord (Webhook)
+1. Scrapes the Epic Games Store for current free games
+2. Compares against previously notified games (tracked in Firestore)
+3. Sends Discord embeds only for new free games
+4. Updates the notified game list
 
-## Database
+## Database (Firestore)
 
-Currently you need to input the url manually.
+One document per source. Document ID is the source name (e.g., `epic_games`).
 
 ```json
 {
-  "collection_name": {
-    "timestamp" : {
-        "last_updated": timestamp,
-        "update_on": timestamp
-    },
+  "epic_games": {
     "url": {
-        "server_name": "https://discord.com/api/webhook/******/*****"
-    }
+      "server_name": "https://discord.com/api/webhooks/..."
+    },
+    "notified": []
   }
 }
 ```
 
-## Future Plan
-
-- Local database (.json/.csv file)
-- Simplified webhook url registration
+- `url` — webhook URL map per Discord server
+- `notified` — game IDs that have already been sent (auto-populated, never modify by hand)
