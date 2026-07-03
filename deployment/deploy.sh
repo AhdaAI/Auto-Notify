@@ -38,7 +38,7 @@ gcloud functions deploy "$FUNCTION_NAME" \
     --source . \
     --entry-point cloud_function_entrypoint \
     --trigger-http \
-    --allow-unauthenticated \
+    --no-allow-unauthenticated \
     --service-account "$FUNCTION_SERVICE_ACCOUNT" \
     --set-env-vars "GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_DATABASE=$GOOGLE_DATABASE,AUTO_NOTIFY_COLLECTION=$AUTO_NOTIFY_COLLECTION" \
     --timeout 60 \
