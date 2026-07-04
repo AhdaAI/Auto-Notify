@@ -34,7 +34,8 @@ class Utility:
         data = google.fetch_doc(source)
 
         if not data:
-            raise ValueError(f"Document '{source}' not found in database.")
+            google.create_doc(source, {"url": {}, "notified": []})
+            return {"url": {}, "notified": []}
 
         return {
             "url": data.get("url", {}),

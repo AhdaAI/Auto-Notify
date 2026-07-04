@@ -21,6 +21,14 @@ class Google:
         doc: DocumentSnapshot = self._collection.document(document_id).get()
         return doc.to_dict() if doc.exists else None
 
+    def create_doc(self, document_id: str, data: dict) -> bool:
+        try:
+            self._collection.document(document_id).set(data, timeout=10000)
+            return True
+        except Exception as e:
+            print(repr(e))
+            return False
+
     def update_db(self, document_id: str, data: dict):
         try:
             self._collection.document(document_id).update(data, timeout=10000)
