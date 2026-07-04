@@ -68,6 +68,8 @@ deploy:
           --schedule="$CRON_SCHEDULE" \
           --uri="$FUNCTION_URI" \
           --location "$GOOGLE_CLOUD_REGION" \
+          --oidc-service-account-email "$FUNCTION_SERVICE_ACCOUNT" \
+          --oidc-token-scope "https://www.googleapis.com/auth/cloud-platform" \
           --quiet
       else
         gcloud scheduler jobs create http "$FUNCTION_NAME" \
